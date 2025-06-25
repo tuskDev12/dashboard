@@ -53,7 +53,6 @@ roc_curve_fig.update_layout(
 
 # === Gráfico 3D con Plotly ===
 scatter_3d_fig = go.Figure()
-
 for label in df['HighLeague'].unique():
     grupo = df[df['HighLeague'] == label]
     scatter_3d_fig.add_trace(go.Scatter3d(
@@ -80,6 +79,7 @@ scatter_3d_fig.update_layout(
 
 # === App DASH ===
 app = dash.Dash(__name__)
+server = app.server  # ✅ Necesario para Render
 app.title = "Dashboard Starcraft - Árbol de Decisión"
 
 app.layout = html.Div(
@@ -98,7 +98,6 @@ app.layout = html.Div(
         }),
 
         html.Div([
-            # Columna izquierda (Métricas)
             html.Div([
                 html.H4("📊 Métricas del Modelo", style={"color": "gold"}),
                 html.Div([
@@ -115,7 +114,6 @@ app.layout = html.Div(
                 })
             ], style={"width": "30%", "padding": "10px"}),
 
-            # Columna derecha (Gráfica ROC)
             html.Div([
                 html.H4("📈 Curva ROC", style={"color": "#00ff88", "textAlign": "center"}),
                 dcc.Graph(figure=roc_curve_fig, config={'displayModeBar': False})
@@ -127,7 +125,6 @@ app.layout = html.Div(
             "justifyContent": "space-between"
         }),
 
-        # === Gráfico 3D ===
         html.Div([
             html.H4("🧠 Gráfico 3D de APM vs. PACs vs. Latencia", style={"color": "#00aaff", "textAlign": "center"}),
             dcc.Graph(figure=scatter_3d_fig, config={'displayModeBar': False})
