@@ -8,7 +8,7 @@ import pandas as pd
 import numpy as np
 
 # --- Cargar dataset y preparar datos ---
-df = pd.read_csv('Starcraft 2.csv', sep=',')
+df = pd.read_csv('Starcraft 2.csv', sep=';')
 
 # Variables numéricas a usar para clustering
 cols_numericas = ['APM', 'NumberOfPACs', 'ActionLatency']
