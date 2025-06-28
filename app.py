@@ -1,110 +1,175 @@
 import dash
 from dash import dcc, html, Input, Output
-import pandas as pd
-import numpy as np
 import plotly.graph_objs as go
 from sklearn.cluster import DBSCAN
 from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
+from sklearn.preprocessing import MinMaxScaler
+import pandas as pd
+import numpy as np
 
-# === Cargar y preparar datos ===
-df = pd.read_csv("Starcraft 2.csv", sep=";")
-df = df[df['APM'].astype(str).str.isnumeric()]
-df['APM'] = df['APM'].astype(float)
-df['NumberOfPACs'] = df['NumberOfPACs'].astype(float)
-df['ActionLatency'] = df['ActionLatency'].astype(float)
+# --- Cargar dataset y preparar datos ---
+df = pd.read_csv('Starcraft 2.csv', sep=',')
 
-X = df[['APM', 'NumberOfPACs', 'ActionLatency']].copy()
+# Variables numéricas a usar para clustering
+cols_numericas = ['APM', 'NumberOfPACs', 'ActionLatency']
+df = df.dropna(subset=cols_numericas)
+X = df[cols_numericas].copy()
 
-# === Precalcular métricas para distintos eps ===
-eps_values = np.arange(12.6, 13.4, 0.1)
-metrics = []
+# Escalar
+scaler = MinMaxScaler()
+X_scaled = scaler.fit_transform(X)
+
+# Usaremos 70% datos para "entrenar"
+np.random.seed(42)
+indices = np.random.choice(len(X_scaled), size=int(len(X_scaled)*0.7), replace=False)
+X_train = X_scaled[indices]
+
+# Rango eps para explorar métricas
+eps_values = np.round(np.arange(0.1, 2.1, 0.1), 2)
+
+# Precomputar métricas para todo rango eps
+sil_scores = []
+ch_scores = []
+db_scores = []
+num_clusters_list = []
+noise_perc_list = []
 
 for eps in eps_values:
     dbscan = DBSCAN(eps=eps, min_samples=5)
-    clusters = dbscan.fit_predict(X)
-    num_clusters = len(set(clusters)) - (1 if -1 in clusters else 0)
+    clusters = dbscan.fit_predict(X_train)
+    n_clusters = len(set(clusters)) - (1 if -1 in clusters else 0)
+    num_clusters_list.append(n_clusters)
+
+    noise_perc = np.sum(clusters == -1) / len(clusters) * 100
+    noise_perc_list.append(noise_perc)
+
     mask = clusters != -1
-    if num_clusters > 1 and mask.any():
-        sil = silhouette_score(X[mask], clusters[mask])
-        ch = calinski_harabasz_score(X[mask], clusters[mask])
-        db = davies_bouldin_score(X[mask], clusters[mask])
+    if n_clusters > 1 and mask.any():
+        sil = silhouette_score(X_train[mask], clusters[mask])
+        ch = calinski_harabasz_score(X_train[mask], clusters[mask])
+        db = davies_bouldin_score(X_train[mask], clusters[mask])
     else:
-        sil, ch, db = np.nan, np.nan, np.nan
+        sil = np.nan
+        ch = np.nan
+        db = np.nan
 
-    metrics.append({
-        'eps': round(eps, 1),
-        'clusters': num_clusters,
-        'silhouette': sil,
-        'calinski': ch,
-        'davies': db
-    })
+    sil_scores.append(sil)
+    ch_scores.append(ch)
+    db_scores.append(db)
 
-metrics_df = pd.DataFrame(metrics)
-
-# === App DASH ===
+# --- Dash App ---
 app = dash.Dash(__name__)
-server = app.server
-app.title = "DBSCAN Dashboard"
+app.title = "Dashboard DBSCAN - Starcraft 2"
 
-app.layout = html.Div(style={'backgroundColor': '#111', 'color': 'white', 'padding': '20px'}, children=[
-    html.H1("DBSCAN Clustering - Métricas por Eps", style={'textAlign': 'center', 'color': '#00e6e6'}),
-
-    html.Div([
-        html.Label("Selecciona valor de eps:", style={'fontWeight': 'bold'}),
-        dcc.Dropdown(
-            id='eps-selector',
-            options=[{'label': f"eps = {row['eps']}", 'value': row['eps']} for _, row in metrics_df.iterrows()],
-            value=12.6,
-            style={'width': '300px', 'color': '#000'}
-        )
-    ], style={'marginBottom': '30px'}),
-
-    html.Div(id='metricas-output', style={'marginBottom': '40px'}),
+app.layout = html.Div(style={'backgroundColor': '#0f1125', 'color': 'white', 'padding': '20px', 'fontFamily': 'Arial'}, children=[
+    html.H1("🎮 Dashboard DBSCAN - Parámetro eps", style={'textAlign': 'center', 'color': '#00e6e6'}),
 
     html.Div([
-        dcc.Graph(
-            figure=go.Figure([
-                go.Scatter(x=metrics_df['eps'], y=metrics_df['silhouette'], mode='lines+markers', name='Silhouette', line=dict(color='aqua'))
-            ]).update_layout(title='Silhouette Score', xaxis_title='eps', yaxis_title='Score', paper_bgcolor='#111', plot_bgcolor='#111', font_color='white')
+        html.Label("Selecciona valor de eps:", style={'fontSize': '20px'}),
+        dcc.Slider(
+            id='eps-slider',
+            min=float(eps_values.min()),
+            max=float(eps_values.max()),
+            step=0.1,
+            value=0.5,
+            marks={float(eps): str(eps) for eps in eps_values},
+            tooltip={"placement": "bottom", "always_visible": True}
         )
-    ]),
+    ], style={'margin': '30px 40px'}),
 
     html.Div([
-        dcc.Graph(
-            figure=go.Figure([
-                go.Scatter(x=metrics_df['eps'], y=metrics_df['calinski'], mode='lines+markers', name='Calinski-Harabasz', line=dict(color='gold'))
-            ]).update_layout(title='Índice Calinski-Harabasz', xaxis_title='eps', yaxis_title='Score', paper_bgcolor='#111', plot_bgcolor='#111', font_color='white')
-        )
-    ]),
+        html.Div([
+            html.H4("Número de Clusters", style={'textAlign': 'center'}),
+            html.H2(id='num-clusters', style={'color': '#00FF00', 'textAlign': 'center'})
+        ], style={'width': '30%', 'display': 'inline-block'}),
 
-    html.Div([
-        dcc.Graph(
-            figure=go.Figure([
-                go.Scatter(x=metrics_df['eps'], y=metrics_df['davies'], mode='lines+markers', name='Davies-Bouldin', line=dict(color='magenta'))
-            ]).update_layout(title='Índice Davies-Bouldin', xaxis_title='eps', yaxis_title='Score', paper_bgcolor='#111', plot_bgcolor='#111', font_color='white')
-        )
-    ])
+        html.Div([
+            html.H4("Porcentaje Ruido", style={'textAlign': 'center'}),
+            html.H2(id='porc-ruido', style={'color': '#FF4500', 'textAlign': 'center'})
+        ], style={'width': '30%', 'display': 'inline-block'}),
+
+        html.Div([
+            html.H4("Silhouette Score", style={'textAlign': 'center'}),
+            html.H2(id='sil-score', style={'color': '#00FF00', 'textAlign': 'center'})
+        ], style={'width': '30%', 'display': 'inline-block'}),
+    ], style={'marginBottom': '40px'}),
+
+    dcc.Graph(id='clusters-scatter', style={'height': '600px'}),
+
+    dcc.Graph(id='metrics-history', style={'height': '350px'}),
 ])
 
+
 @app.callback(
-    Output('metricas-output', 'children'),
-    Input('eps-selector', 'value')
+    Output('num-clusters', 'children'),
+    Output('porc-ruido', 'children'),
+    Output('sil-score', 'children'),
+    Output('clusters-scatter', 'figure'),
+    Output('metrics-history', 'figure'),
+    Input('eps-slider', 'value')
 )
-def actualizar_metricas(eps):
-    fila = metrics_df[metrics_df['eps'] == eps].iloc[0]
-    return html.Div([
-        html.H4(f"Resultados para eps = {eps}", style={"color": "#00ffcc"}),
-        html.P(f"Clusters encontrados: {fila['clusters']}", style={"marginBottom": "5px"}),
-        html.P(f"Silhouette Score: {fila['silhouette']:.3f}" if pd.notna(fila['silhouette']) else "Silhouette Score: N/A"),
-        html.P(f"Calinski-Harabasz: {fila['calinski']:.2f}" if pd.notna(fila['calinski']) else "Calinski-Harabasz: N/A"),
-        html.P(f"Davies-Bouldin: {fila['davies']:.3f}" if pd.notna(fila['davies']) else "Davies-Bouldin: N/A")
-    ], style={
-        "padding": "15px",
-        "backgroundColor": "#1f2235",
-        "borderRadius": "10px",
-        "boxShadow": "0 0 10px #00bfff66",
-        'width': '300px'
-    })
+def update_dashboard(eps):
+    # DBSCAN con eps actual
+    dbscan = DBSCAN(eps=eps, min_samples=5)
+    clusters = dbscan.fit_predict(X_train)
+    n_clusters = len(set(clusters)) - (1 if -1 in clusters else 0)
+    noise_perc = np.sum(clusters == -1) / len(clusters) * 100
+
+    mask = clusters != -1
+    if n_clusters > 1 and mask.any():
+        sil = silhouette_score(X_train[mask], clusters[mask])
+    else:
+        sil = np.nan
+
+    # KPIs
+    num_clusters_text = str(n_clusters)
+    porc_ruido_text = f"{noise_perc:.2f} %"
+    sil_score_text = f"{sil:.3f}" if not np.isnan(sil) else "N/A"
+
+    # Scatter clusters (2 primeras features)
+    scatter_fig = go.Figure()
+    for label in np.unique(clusters):
+        pts = X_train[clusters == label]
+        scatter_fig.add_trace(go.Scatter(
+            x=pts[:, 0],
+            y=pts[:, 1],
+            mode='markers',
+            name='Ruido' if label == -1 else f'Cluster {label}',
+            marker=dict(
+                size=7,
+                line=dict(width=0.5, color='DarkSlateGrey'),
+                symbol='circle'
+            )
+        ))
+
+    scatter_fig.update_layout(
+        title=f'Clusters DBSCAN (eps={eps})',
+        xaxis_title=cols_numericas[0],
+        yaxis_title=cols_numericas[1],
+        plot_bgcolor='#1e1e2f',
+        paper_bgcolor='#0f1125',
+        font=dict(color='white'),
+        legend=dict(title="Clusters")
+    )
+
+    # Gráfico historial métricas
+    metrics_fig = go.Figure()
+    metrics_fig.add_trace(go.Scatter(x=eps_values, y=sil_scores, mode='lines+markers', name='Silhouette'))
+    metrics_fig.add_trace(go.Scatter(x=eps_values, y=ch_scores, mode='lines+markers', name='Calinski-Harabasz'))
+    metrics_fig.add_trace(go.Scatter(x=eps_values, y=db_scores, mode='lines+markers', name='Davies-Bouldin'))
+
+    metrics_fig.update_layout(
+        title='Métricas según eps',
+        xaxis_title='eps',
+        yaxis_title='Valor métrica',
+        plot_bgcolor='#1e1e2f',
+        paper_bgcolor='#0f1125',
+        font=dict(color='white'),
+        legend=dict(x=0, y=1)
+    )
+
+    return num_clusters_text, porc_ruido_text, sil_score_text, scatter_fig, metrics_fig
+
 
 if __name__ == '__main__':
     app.run_server(debug=True)
