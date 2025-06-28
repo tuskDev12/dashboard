@@ -59,6 +59,8 @@ for eps in eps_values:
 
 # --- Dash App ---
 app = dash.Dash(__name__)
+server = app.server  # <-- Muy importante para gunicorn
+
 app.title = "Dashboard DBSCAN - Starcraft 2"
 
 app.layout = html.Div(style={'backgroundColor': '#0f1125', 'color': 'white', 'padding': '20px', 'fontFamily': 'Arial'}, children=[
