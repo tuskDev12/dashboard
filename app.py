@@ -161,5 +161,7 @@ def render_content(tab):
         ])
     ])
 
+server = app.server  # 👈 ESTO ES CLAVE
+
 if __name__ == '__main__':
     app.run_server(debug=True)
